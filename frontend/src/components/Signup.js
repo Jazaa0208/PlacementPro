@@ -31,7 +31,7 @@ const Signup = () => {
     setIsLoading(true);
 
     try {
-      const res = await axios.post("http://127.0.0.1:5000/api/auth/register", formData);
+      const res = await axios.post("https://web-production-54456.up.railway.app/api/auth/register", formData);
       if (res.data.message) {
         setMessage("✅ Signup successful! Redirecting to login...");
         setTimeout(() => navigate("/login"), 1500);
