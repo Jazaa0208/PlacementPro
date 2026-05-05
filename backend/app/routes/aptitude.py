@@ -16,79 +16,66 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 aptitude_bp = Blueprint("aptitude", __name__)
-CORS(aptitude_bp, origins=["http://localhost:3000"], supports_credentials=True)
+
+# ✅ FIX 1: Added Vercel production URL to CORS origins
+CORS(aptitude_bp, origins=[
+    "http://localhost:3000",
+    "https://placement-pro-ashen.vercel.app"
+], supports_credentials=True)
 
 # === CONSTANTS MATCHING FRONTEND ===
 EXPECTED_PRACTICE_QUESTION_COUNT = 15
 EXPECTED_TEST_QUESTION_COUNT = 10
 PASSING_SCORE = 8
-GEMINI_MODEL = "gemini-2.0-flash"  # Using more stable model
-USE_REST_API = True  # Set to True to use REST API (more reliable)
+
+# ✅ FIX 2: Switched to gemini-1.5-flash (more generous free quota)
+GEMINI_MODEL = "gemini-1.5-flash"
+USE_REST_API = True
 
 # Force IPv4 for all socket connections
 def force_ipv4():
     """Force socket to use IPv4 only"""
     def allowed_gateways_family():
         return socket.AF_INET
-    
-    # Monkey patch to prefer IPv4
+
     socket.create_connection = create_connection
     if hasattr(socket.create_connection, 'allowed_gateways_family'):
         socket.create_connection.allowed_gateways_family = allowed_gateways_family
 
-# Apply IPv4 forcing
 force_ipv4()
 
 # -------------------- JSON CLEANING FUNCTION --------------------
 def clean_json_string(text):
-    """Clean JSON string by removing invalid control characters"""
     if not text:
         return text
-    
-    # Remove any control characters except \n, \r, \t
-    # This regex keeps only printable characters and common escapes
     cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-    
-    # Fix common JSON issues
-    cleaned = re.sub(r',\s*}', '}', cleaned)  # Remove trailing commas
-    cleaned = re.sub(r',\s*\]', ']', cleaned)  # Remove trailing commas in arrays
-    
+    cleaned = re.sub(r',\s*}', '}', cleaned)
+    cleaned = re.sub(r',\s*\]', ']', cleaned)
     return cleaned
 
 def extract_json_from_text(text):
-    """Extract JSON object from text that might contain markdown or extra content"""
     if not text:
         return None
-    
-    # Try to find JSON between ```json and ``` markers
     json_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
     matches = re.findall(json_pattern, text)
-    
     if matches:
-        # Use the first JSON block found
         return matches[0].strip()
-    
-    # If no markdown blocks, try to find anything that looks like a JSON object
-    # Find the first { and last }
     start = text.find('{')
     end = text.rfind('}')
-    
     if start != -1 and end != -1 and end > start:
         return text[start:end+1].strip()
-    
     return text.strip()
 
 # -------------------- GEMINI CALL (REST API VERSION) --------------------
 def call_gemini_rest(prompt):
-    """REST API-based Gemini call (more reliable with network issues)"""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         logger.error("Missing GEMINI_API_KEY environment variable")
         return None, "Missing API key"
-    
-    # Using gemini-pro for REST API
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"    
-    # Format prompt for REST API
+
+    # ✅ FIX 3: URL now uses GEMINI_MODEL constant (was hardcoded to gemini-pro before)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+
     payload = {
         "contents": [{
             "parts": [{"text": prompt}]
@@ -100,22 +87,24 @@ def call_gemini_rest(prompt):
             "topK": 40
         }
     }
-    
+
     try:
         logger.info("Sending request to Gemini REST API...")
-        
-        # Use requests with timeout and IPv4 preference
         session = requests.Session()
-        
         response = session.post(
             url,
             json=payload,
-            timeout=45,  # Increased timeout
+            timeout=45,
             headers={"Content-Type": "application/json"}
         )
-        
+
         logger.info(f"Gemini API response status: {response.status_code}")
-        
+
+        if response.status_code == 429:
+            # ✅ FIX 4: Explicit handling for quota exceeded
+            logger.error("Gemini quota exceeded (429)")
+            return None, "Quota exceeded. Please try again later."
+
         if response.status_code != 200:
             error_msg = f"API returned {response.status_code}"
             try:
@@ -125,24 +114,18 @@ def call_gemini_rest(prompt):
                 error_msg += f": {response.text[:200]}"
             logger.error(error_msg)
             return None, error_msg
-        
+
         data = response.json()
-        
-        # Extract text from response
+
         if 'candidates' in data and len(data['candidates']) > 0:
             candidate = data['candidates'][0]
             if 'content' in candidate and 'parts' in candidate['content']:
                 text = candidate['content']['parts'][0]['text']
-                
-                # Log raw response for debugging
                 logger.debug(f"Raw Gemini response: {text[:500]}...")
-                
-                # Extract JSON from the response
+
                 json_text = extract_json_from_text(text)
-                
-                # Clean the JSON string
                 json_text = clean_json_string(json_text)
-                
+
                 try:
                     result = json.loads(json_text)
                     logger.info("Successfully parsed JSON response")
@@ -150,21 +133,19 @@ def call_gemini_rest(prompt):
                 except json.JSONDecodeError as e:
                     logger.error(f"JSON parse error: {e}")
                     logger.error(f"Problematic JSON text: {json_text[:500]}")
-                    
-                    # Try one more time with aggressive cleaning
-                    # Remove everything except what looks like JSON structure
-                    json_text = re.sub(r'[^\x20-\x7e]', '', json_text)  # Keep only printable ASCII
-                    json_text = re.sub(r',(\s*[}\]])', r'\1', json_text)  # Remove trailing commas
-                    
+
+                    json_text = re.sub(r'[^\x20-\x7e]', '', json_text)
+                    json_text = re.sub(r',(\s*[}\]])', r'\1', json_text)
+
                     try:
                         result = json.loads(json_text)
                         return result, None
                     except json.JSONDecodeError as e2:
                         logger.error(f"Second JSON parse attempt failed: {e2}")
                         return None, f"Invalid JSON response: {str(e)}"
-        
+
         return None, "No valid candidates in response"
-        
+
     except requests.exceptions.Timeout:
         logger.error("Request timeout after 45 seconds")
         return None, "Request timeout"
@@ -178,15 +159,12 @@ def call_gemini_rest(prompt):
 
 # -------------------- GEMINI CALL (SDK VERSION) --------------------
 def call_gemini_sdk(prompt):
-    """Original SDK-based Gemini call with better error handling"""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None, "Missing API key"
 
     try:
-        # Configure with timeout and IPv4 preference
         genai.configure(api_key=api_key)
-        
         model = genai.GenerativeModel(GEMINI_MODEL)
         config = genai.types.GenerationConfig(
             response_mime_type="application/json",
@@ -194,21 +172,18 @@ def call_gemini_sdk(prompt):
             max_output_tokens=4096
         )
 
-        # Add timeout to the request
         r = model.generate_content(
-            prompt, 
+            prompt,
             generation_config=config,
             request_options={"timeout": 45}
         )
-        
+
         if not r or not r.text:
             return None, "Empty response from Gemini"
-            
-        txt = r.text.strip()
 
+        txt = r.text.strip()
         logger.debug(f"Raw Gemini SDK output: {txt[:500]}...")
 
-        # Extract and clean JSON
         json_text = extract_json_from_text(txt)
         json_text = clean_json_string(json_text)
 
@@ -221,17 +196,13 @@ def call_gemini_sdk(prompt):
 
 # -------------------- MAIN GEMINI CALL (with fallback) --------------------
 def call_gemini(prompt):
-    """Main Gemini call function with multiple fallback options"""
-    
-    # Try REST API first if enabled
     if USE_REST_API:
         logger.info("Using REST API for Gemini...")
         result, error = call_gemini_rest(prompt)
         if result:
             return result, None
         logger.warning(f"REST API failed: {error}, trying SDK...")
-    
-    # Fall back to SDK
+
     logger.info("Using SDK for Gemini...")
     return call_gemini_sdk(prompt)
 
@@ -240,91 +211,50 @@ def call_gemini(prompt):
 @aptitude_bp.route("/diagnose-gemini", methods=["GET"])
 @jwt_required()
 def diagnose_gemini():
-    """Test connectivity to Gemini API"""
     results = {
         "timestamp": time.time(),
         "tests": {}
     }
-    
+
     api_key = os.getenv("GEMINI_API_KEY")
     results["api_key"] = "Present" if api_key else "MISSING"
     if api_key:
         results["api_key_length"] = len(api_key)
         results["api_key_preview"] = api_key[:5] + "..." + api_key[-5:] if len(api_key) > 10 else "too_short"
-    
-    # Test 1: DNS resolution
+
     try:
         ip = socket.gethostbyname('generativelanguage.googleapis.com')
-        results['tests']['dns_resolution'] = {
-            "status": "success",
-            "ip": ip,
-            "ip_version": "IPv4"
-        }
+        results['tests']['dns_resolution'] = {"status": "success", "ip": ip}
     except Exception as e:
-        results['tests']['dns_resolution'] = {
-            "status": "failed",
-            "error": str(e)
-        }
-    
-    # Test 2: Basic connectivity
+        results['tests']['dns_resolution'] = {"status": "failed", "error": str(e)}
+
     try:
-        r = requests.get(
-            'https://generativelanguage.googleapis.com',
-            timeout=5,
-            allow_redirects=False
-        )
-        results['tests']['connectivity'] = {
-            "status": "success",
-            "status_code": r.status_code
-        }
+        r = requests.get('https://generativelanguage.googleapis.com', timeout=5, allow_redirects=False)
+        results['tests']['connectivity'] = {"status": "success", "status_code": r.status_code}
     except Exception as e:
-        results['tests']['connectivity'] = {
-            "status": "failed",
-            "error": str(e)
-        }
-    
-    # Test 3: API key validation
+        results['tests']['connectivity'] = {"status": "failed", "error": str(e)}
+
     if api_key:
         try:
             test_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
             r = requests.get(test_url, timeout=5)
             if r.status_code == 200:
-                results['tests']['api_key_validation'] = {
-                    "status": "success",
-                    "message": "API key is valid"
-                }
+                results['tests']['api_key_validation'] = {"status": "success", "message": "API key is valid"}
             else:
-                results['tests']['api_key_validation'] = {
-                    "status": "failed",
-                    "code": r.status_code,
-                    "message": r.text[:200]
-                }
+                results['tests']['api_key_validation'] = {"status": "failed", "code": r.status_code, "message": r.text[:200]}
         except Exception as e:
-            results['tests']['api_key_validation'] = {
-                "status": "failed",
-                "error": str(e)
-            }
-    
-    # Test 4: Try a simple generation
+            results['tests']['api_key_validation'] = {"status": "failed", "error": str(e)}
+
     try:
         test_prompt = """Generate a simple JSON with one key "test" set to "success". Return ONLY the JSON object, no other text."""
         result, error = call_gemini_rest(test_prompt)
         if result and result.get('test') == 'success':
-            results['tests']['generation_test'] = {
-                "status": "success",
-                "message": "Successfully generated content"
-            }
+            results['tests']['generation_test'] = {"status": "success", "message": "Successfully generated content"}
         else:
-            results['tests']['generation_test'] = {
-                "status": "failed",
-                "error": error or "Invalid response"
-            }
+            results['tests']['generation_test'] = {"status": "failed", "error": error or "Invalid response"}
     except Exception as e:
-        results['tests']['generation_test'] = {
-            "status": "failed",
-            "error": str(e)
-        }
-    
+        results['tests']['generation_test'] = {"status": "failed", "error": str(e)}
+
     return jsonify(results)
 
 
@@ -376,7 +306,6 @@ def practice(topic):
     if saved:
         return jsonify({"questions": saved.questions})
 
-    # Improved prompt for better JSON formatting
     prompt = f"""Generate EXACTLY {EXPECTED_PRACTICE_QUESTION_COUNT} aptitude practice questions for the topic "{topic}".
 
 Return a JSON object with a "questions" array containing {EXPECTED_PRACTICE_QUESTION_COUNT} objects.
@@ -406,25 +335,22 @@ Return ONLY the JSON object, no other text or markdown formatting."""
     data, err = call_gemini(prompt)
     if err:
         logger.error(f"Gemini error: {err}")
-        return jsonify({"error": f"AI failed to generate practice questions: {err}"}), 500
-    
+        # ✅ FIX 5: User-friendly error message instead of raw Gemini error
+        return jsonify({"error": "Practice questions temporarily unavailable. Please try again in a moment."}), 503
+
     if not data:
-        logger.error("No data returned from Gemini")
         return jsonify({"error": "AI returned no data"}), 500
-    
+
     if "questions" not in data:
-        logger.error(f"Invalid response format - missing 'questions' key: {data}")
+        logger.error(f"Invalid response format: {data}")
         return jsonify({"error": "AI returned invalid format - missing questions array"}), 500
 
     questions = data["questions"]
     if not isinstance(questions, list):
-        logger.error(f"Questions is not a list: {type(questions)}")
         return jsonify({"error": "AI returned invalid format - questions not an array"}), 500
 
     if len(questions) != EXPECTED_PRACTICE_QUESTION_COUNT:
-        logger.error(f"Wrong question count: got {len(questions)}, expected {EXPECTED_PRACTICE_QUESTION_COUNT}")
-        # Don't fail, just log and continue with what we have
-        logger.warning(f"Continuing with {len(questions)} questions")
+        logger.warning(f"Got {len(questions)} questions, expected {EXPECTED_PRACTICE_QUESTION_COUNT}. Continuing anyway.")
 
     try:
         rec = TopicPractice(topic=topic, questions=questions)
@@ -468,7 +394,6 @@ def test(topic):
     if saved:
         return jsonify({"questions": saved.questions})
 
-    # Improved test prompt
     prompt = f"""Generate EXACTLY {EXPECTED_TEST_QUESTION_COUNT} aptitude TEST questions for the topic "{topic}".
 
 Return a JSON object with a "questions" array containing {EXPECTED_TEST_QUESTION_COUNT} objects.
@@ -497,25 +422,21 @@ Return ONLY the JSON object, no other text or markdown formatting."""
     data, err = call_gemini(prompt)
     if err:
         logger.error(f"Gemini error: {err}")
-        return jsonify({"error": f"AI failed to generate test: {err}"}), 500
-    
+        return jsonify({"error": "Test questions temporarily unavailable. Please try again in a moment."}), 503
+
     if not data:
-        logger.error("No data returned from Gemini")
         return jsonify({"error": "AI returned no data"}), 500
-    
+
     if "questions" not in data:
-        logger.error(f"Invalid response format - missing 'questions' key: {data}")
+        logger.error(f"Invalid response format: {data}")
         return jsonify({"error": "AI returned invalid format - missing questions array"}), 500
 
     questions = data["questions"]
     if not isinstance(questions, list):
-        logger.error(f"Questions is not a list: {type(questions)}")
         return jsonify({"error": "AI returned invalid format - questions not an array"}), 500
 
     if len(questions) != EXPECTED_TEST_QUESTION_COUNT:
-        logger.error(f"Wrong question count: got {len(questions)}, expected {EXPECTED_TEST_QUESTION_COUNT}")
-        # Don't fail, just log and continue with what we have
-        logger.warning(f"Continuing with {len(questions)} test questions")
+        logger.warning(f"Got {len(questions)} test questions, expected {EXPECTED_TEST_QUESTION_COUNT}. Continuing anyway.")
 
     try:
         rec = TopicTest(topic=topic, questions=questions)
