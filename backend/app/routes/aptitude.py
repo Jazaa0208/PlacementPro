@@ -29,7 +29,7 @@ EXPECTED_TEST_QUESTION_COUNT = 10
 PASSING_SCORE = 8
 
 # ✅ FIX 2: Switched to gemini-1.5-flash (more generous free quota)
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash-lite"
 USE_REST_API = True
 
 # Force IPv4 for all socket connections
