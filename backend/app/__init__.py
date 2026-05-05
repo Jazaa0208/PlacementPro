@@ -27,11 +27,12 @@ def create_app(config_class=Config):
     CORS(app, resources={
         r"/api/*": {
             "origins": [
-                "http://localhost:3000",
-                "http://127.0.0.1:3000",
-                "https://placement-pro-ashen.vercel.app",
-                "https://placement-pro-git-main-jazaa-mujawars-projects.vercel.app"
-            ],
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://placement-pro-ashen.vercel.app",
+    "https://placement-pro-git-main-jazaa-mujawars-projects.vercel.app",
+    "https://placement-or5q3yvgl-jazaa-mujawars-projects.vercel.app"
+],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
             "supports_credentials": True
