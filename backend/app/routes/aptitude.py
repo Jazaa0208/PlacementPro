@@ -87,8 +87,7 @@ def call_gemini_rest(prompt):
         return None, "Missing API key"
     
     # Using gemini-pro for REST API
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
-    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"    
     # Format prompt for REST API
     payload = {
         "contents": [{
