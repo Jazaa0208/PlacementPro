@@ -64,7 +64,7 @@ const Dashboard = () => {
         return;
       }
 
-      const response = await fetch('http://localhost:5000/api/dashboard/data', {
+      const response = await fetch('https://web-production-54456.up.railway.app/api/dashboard/data', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${accessToken}`,

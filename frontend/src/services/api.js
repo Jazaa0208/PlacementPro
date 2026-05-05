@@ -1,13 +1,12 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: "http://127.0.0.1:5000/api",/api",
+  baseURL: "https://web-production-54456.up.railway.app/api",
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-// Attach token automatically (if present)
 API.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("access_token");
@@ -25,7 +24,6 @@ API.interceptors.request.use(
   }
 );
 
-// Handle response errors with more detailed logging
 API.interceptors.response.use(
   (response) => {
     console.log("Response received from:", response.config.url, "Status:", response.status);
@@ -33,11 +31,7 @@ API.interceptors.response.use(
   },
   (error) => {
     if (error.response) {
-      console.error(
-        "API error:",
-        error.response.status,
-        error.response.data?.error || error.response.data || error.message
-      );
+      console.error("API error:", error.response.status, error.response.data?.error || error.response.data || error.message);
     } else if (error.request) {
       console.error("No response received:", error.request);
     } else {
@@ -47,28 +41,19 @@ API.interceptors.response.use(
   }
 );
 
-// Auth endpoints
 export const registerUser = (payload) => API.post("/auth/register", payload);
 export const loginUser = (payload) => API.post("/auth/login", payload);
 export const fetchMe = () => API.get("/auth/me");
-
-// Test endpoint
 export const testBackend = () => API.get("/test");
-
-// Coding module endpoints
 export const getCodingProblems = () => API.get("/coding/problems");
 export const runCode = (payload) => API.post("/coding/run", payload);
 export const submitCode = (payload) => API.post("/coding/submit", payload);
-
-// Existing aptitude endpoints (ensure these are included if used elsewhere)
 export const getRoadmap = () => API.get("/aptitude/roadmap");
 export const getPracticeQuestions = (topic) => API.get(`/aptitude/topic/${topic}/practice`);
 export const getVideo = (topic) => API.get(`/aptitude/topic/${topic}/video`);
 export const completePractice = (topic) => API.post(`/aptitude/topic/${topic}/complete-practice`);
-export const checkAnswer = (topic, payload) =>
-  API.post(`/aptitude/topic/${topic}/check-answer`, payload);
+export const checkAnswer = (topic, payload) => API.post(`/aptitude/topic/${topic}/check-answer`, payload);
 export const getTestQuestions = (topic) => API.get(`/aptitude/topic/${topic}/test`);
-export const submitTest = (topic, payload) =>
-  API.post(`/aptitude/topic/${topic}/submit-test`, payload);
+export const submitTest = (topic, payload) => API.post(`/aptitude/topic/${topic}/submit-test`, payload);
 
 export default API;

@@ -410,7 +410,7 @@ const Resume = () => {
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [printStyleInjected, setPrintStyleInjected] = useState(false);
 
-  const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+  const API_BASE_URL = process.env.REACT_APP_API_URL || "https://web-production-54456.up.railway.app/api";
 
   // ─── Inject print styles once ───
   const injectPrintStyles = () => {

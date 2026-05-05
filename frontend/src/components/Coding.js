@@ -82,7 +82,7 @@ const Coding = () => {
   ];
 
   // ----------------------- API CALLS -----------------------
-  const API_BASE = "http://localhost:5000/api/coding";
+  const API_BASE = "https://web-production-54456.up.railway.app/api/coding";
 
   const fetchProblems = async (filters = {}) => {
     try {

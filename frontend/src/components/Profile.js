@@ -12,7 +12,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "./Sidebar";
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API_BASE_URL = process.env.REACT_APP_API_URL || "https://web-production-54456.up.railway.app";
 
 const AvatarCircle = ({ name, avatar, size = "xl" }) => {
   const sizeMap = {
